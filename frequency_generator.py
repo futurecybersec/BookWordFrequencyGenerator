@@ -1,5 +1,23 @@
 import sys
 import csv
+from collections import Counter
+
+
+def main():
+    # Get book filenames and validate them (1 or more)
+    filenames = get_book_filenames(sys.argv)
+
+    # Create list of lines aggregated from all files
+    lines = []
+    for filename in filenames:
+        lines.extend(get_lines(filename))
+
+    # Create dictionary and list of invalid words (aggregated)
+    dictionary, invalid_words = count_words(lines)
+
+    # Create a single invalid words file and a single CSV with merged results
+    create_invalid_word_file(invalid_words, output_stem("merged"))
+    create_file(dictionary, output_stem("merged"))
 
 
 # Normalization helper to unify quotes/dashes and remove invisible chars
@@ -17,94 +35,81 @@ def normalize_text(s):
     return s
 
 
-def main():
-
-    # Get book filename and validate it
-    filename = get_book_filename(sys.argv)
-
-    # Create list of lines
-    lines = get_lines(filename)
-
-    # Create dictionary and list of invalid words
-    dictionary, invalid_words = count_words(lines)
-
-    create_invalid_word_file(invalid_words, filename)
-
-    create_file(dictionary, filename)
-
-
-def get_book_filename(args):
+def get_book_filenames(args):
     # Check for correct use of program
     if len(args) < 2:
-        sys.exit("Too few command-line arguments. Usage: python project bookname.txt")
-    elif len(args) > 2:
-        sys.exit("Too many command-line arguments. Usage: python project bookname.txt")
+        sys.exit("Too few command-line arguments. Usage: python project file1.txt [file2.txt ...]")
 
-    filename = args[1]
-    # Check that book file is correct file type
-    if not filename.endswith(".txt"):
-        sys.exit("The book not text file")
-    return filename
+    filenames = args[1:]
+
+    # Validate all files are .txt
+    for filename in filenames:
+        if not filename.endswith(".txt"):
+            sys.exit(f"Not a text file: {filename}")
+    return filenames
 
 
-# This function creates a list of each line in the book file
-
+# This function creates a list of each line in a book file
 
 def get_lines(f):
     try:
-        with open(f) as file:
-            # line.strip() return False on whitespace characters so will ignore
-            # lines with only whitespace
+        with open(f, encoding="utf-8") as file:
+            # line.strip() returns False on whitespace-only lines, so ignore them
             lines = [line.strip() for line in file.readlines() if line.strip()]
     except FileNotFoundError:
-        sys.exit("File does not exist")
+        sys.exit(f"File does not exist: {f}")
     return lines
+
 
 # This function creates a dictionary with the word as key and frequency as value
 # It also creates a list of words that were not able to be processed
 
-
 def count_words(lines):
-    wordsdic = {}
+    words_counter = Counter()
     invalid_words = []
     for line in lines:
         line = normalize_text(line)
         words = line.split(" ")
         for word in words:
-            # Found some weird invisible characters in the middle of some words removed with replace("­", "")
+            # Clean and normalize word
             word = normalize_text(word).strip("\"'()«»—!?¿¡.-:;,©/… \n\t\r‘’").lower()
-            
-            # Split at apostrophe
-            
-            words_split_apostrophe = word.replace("’", "'").split("'")
-            for word_split_apostrophe in words_split_apostrophe:
-                if word_split_apostrophe.isalpha():
-                    wordsdic[word_split_apostrophe] = wordsdic.get(word_split_apostrophe, 0) + 1
-                else:
-                    invalid_words.append(word_split_apostrophe)
 
-    # This sorts the dictionary by values in descending order
-    sorted_dict = dict(sorted(wordsdic.items(), key=lambda item: item[1], reverse=True))
+            # Split at apostrophe
+            words_split_apostrophe = word.replace("’", "'").split("'")
+            for w in words_split_apostrophe:
+                if w.isalpha():
+                    words_counter[w] += 1
+                else:
+                    if w:  # avoid counting empty strings as invalid
+                        invalid_words.append(w)
+
+    # Sort by frequency descending then alphabetically for determinism
+    sorted_items = sorted(words_counter.items(), key=lambda item: (-item[1], item[0]))
+    sorted_dict = dict(sorted_items)
     return sorted_dict, invalid_words
 
-# This function creates the csv file using the name of the bookfile
+
+# Utility to pick an output stem (without extension)
+
+def output_stem(name):
+    return name
 
 
-def create_file(d, n):
-    filename = n.split(".")[0]
-    with open(filename + ".csv", "w", encoding="utf-8-sig") as f:
+# This function creates the csv file using the provided stem
+
+def create_file(d, stem):
+    with open(stem + ".csv", "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f)
         for row in d.items():
             writer.writerow(row)
 
+
 # This function creates the text file from the list of invalid words
 
-
-def create_invalid_word_file(i, n):
-    filename = n.split(".")[0]
-    with open(filename + "_invalid_words.txt", "w", encoding="utf-8-sig") as f:
+def create_invalid_word_file(invalid_list, stem):
+    with open(stem + "_invalid_words.txt", "w", encoding="utf-8-sig") as f:
         f.write("Invalid words: \n")
-        for word in i:
+        for word in invalid_list:
             if not word.isdigit():
                 f.write(word + "\n")
 
